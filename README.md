@@ -1,6 +1,8 @@
 # mac-virtual-camera
 
-Uses a slightly modified https://github.com/johnboiles/coremediaio-dal-minimal-example
+Simple virtual camera for mac
+
+Uses a slightly modified version of https://github.com/johnboiles/coremediaio-dal-minimal-example
 
 * `git clone https://github.com/christopher-hesse/mac-virtual-camera.git`
 * `sudo rm -r /Library/CoreMediaIO/Plug-Ins/DAL/CMIOMinimalSample.plugin`
