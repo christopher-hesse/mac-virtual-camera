@@ -1,0 +1,9 @@
+{
+    "venv": "mac-virtual-camera",
+    "include": [
+        "mac_virtual_camera"
+    ],
+    "strict": [
+        "mac_virtual_camera/**/*.py"
+    ]
+}
