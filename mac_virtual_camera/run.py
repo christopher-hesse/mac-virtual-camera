@@ -12,6 +12,9 @@ import cv2
 import torch
 from torch import nn
 import numpy as np
+import urllib.request
+
+from mac_virtual_camera import cyclegan
 
 WINDOW_NAME = "camera"
 IMAGE_WIDTH = 1280
@@ -73,7 +76,7 @@ def create_gaussian_conv(kernel_size=7, sigma=3):
     return gaussian_conv
 
 
-class SobelImageProcessor(nn.Module):
+class SobelImageModel(nn.Module):
     def __init__(self):
         super().__init__()
 
@@ -108,76 +111,123 @@ class SobelImageProcessor(nn.Module):
         return torch_gray_to_rgb(normalized_grad)
 
 
+class SobelImageProcessor:
+    def __init__(self):
+        self._model = SobelImageModel()
+    
+    def process(self, img):
+        return process_image_with_model(self._model, img)
+
+
+def get_model_device():
+    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
 def process_image_with_model(model, img):
+    device = get_model_device()
     with torch.no_grad():
-        input_hwc = torch.from_numpy(img).to(dtype=torch.float32) / 255
+        input_hwc = torch.from_numpy(img).to(dtype=torch.float32, device=device) / 255
         input_nhwc = input_hwc.unsqueeze(dim=0)
         input_nchw = input_nhwc.permute(0, 3, 1, 2)
         output_nchw = model(input_nchw)
         output_nhwc = output_nchw.permute(0, 2, 3, 1)
-        processed_img = (output_nhwc[0] * 255).to(dtype=torch.uint8).numpy()
+        processed_img = (output_nhwc[0] * 255).to(dtype=torch.uint8, device=torch.device("cpu")).numpy()
     return processed_img
 
-fgbg = cv2.createBackgroundSubtractorMOG2()
 
-# https://stackoverflow.com/questions/8076889/how-to-use-opencv-simpleblobdetector
-params = cv2.SimpleBlobDetector_Params()
-params.minThreshold = 10
-params.maxThreshold = 200
-params.filterByArea = True
-params.minArea = 10
-params.filterByCircularity = False
-params.minCircularity = 0.1
-params.filterByConvexity = False
-params.minConvexity = 0.87
-params.filterByInertia = False
-params.minInertiaRatio = 0.01
-detector = cv2.SimpleBlobDetector_create(params)
+class IdentityProcessor:
+    def process(self, img):
+        return img
 
-def watershed_processor(img):
-    # https://stackoverflow.com/questions/42294109/remove-background-of-the-image-using-opencv-python
-    # Create a blank image of zeros (same dimension as img)
-    # It should be grayscale (1 color channel)
-    marker = np.zeros_like(img[:, :, 0]).astype(np.int32)
-    height, width, _ = img.shape
 
-    # Dictate the background and set the markers to 1
-    for inset in [1, 50, 100]:
-        marker[inset][inset] = 1
-        marker[height - inset][inset] = 1
-        marker[inset][width - inset] = 1
-        marker[height - inset][width - inset] = 1
+class WatershedProcessor:
+    def __init__(self):
+        self.fgbg = cv2.createBackgroundSubtractorMOG2()
 
-    # determine area of interest using blob detector on background subtractor
-    # fgmask = fgbg.apply(img)
-    # rgb_mask = np.tile(np.expand_dims(fgmask, axis=2), (1, 1, 3))
-    # keypoints = detector.detect(rgb_mask)
-    # sorted_keypoints = list(sorted(keypoints, key=lambda kp: kp.size))
-    # for kp in sorted_keypoints[:10]:
-    #     x, y = kp.pt
-    #     marker[int(y)][int(x)] = 255
+        # https://stackoverflow.com/questions/8076889/how-to-use-opencv-simpleblobdetector
+        params = cv2.SimpleBlobDetector_Params()
+        params.minThreshold = 10
+        params.maxThreshold = 200
+        params.filterByArea = True
+        params.minArea = 10
+        params.filterByCircularity = False
+        params.minCircularity = 0.1
+        params.filterByConvexity = False
+        params.minConvexity = 0.87
+        params.filterByInertia = False
+        params.minInertiaRatio = 0.01
+        self.detector = cv2.SimpleBlobDetector_create(params)
 
-    for offset in [10, 30]:
-        for x_factor, y_factor in [(1, 1), (1, -1), (-1, 1), (-1, -1)]:
-            marker[IMAGE_HEIGHT // 2 + y_factor * offset][IMAGE_WIDTH // 2 + x_factor * offset] = 255
+    def process(self, img):
+        # https://stackoverflow.com/questions/42294109/remove-background-of-the-image-using-opencv-python
+        # Create a blank image of zeros (same dimension as img)
+        # It should be grayscale (1 color channel)
+        marker = np.zeros_like(img[:, :, 0]).astype(np.int32)
+        height, width, _ = img.shape
 
-    # Now we have set the markers, we use the watershed
-    # algorithm to generate a marked image
-    marked = cv2.watershed(img, marker)
+        # Dictate the background and set the markers to 1
+        for inset in [1, 50, 100]:
+            marker[inset][inset] = 1
+            marker[height - inset][inset] = 1
+            marker[inset][width - inset] = 1
+            marker[height - inset][width - inset] = 1
 
-    # Make the background black, and what we want to keep white
-    marked[marked == 1] = 0
-    marked[marked > 1] = 255
+        # determine area of interest using blob detector on background subtractor
+        # fgmask = self.fgbg.apply(img)
+        # rgb_mask = np.tile(np.expand_dims(fgmask, axis=2), (1, 1, 3))
+        # return rgb_mask
+        # keypoints = self.detector.detect(rgb_mask)
+        # sorted_keypoints = list(sorted(keypoints, key=lambda kp: kp.size))
+        # for kp in sorted_keypoints[:10]:
+        #     x, y = kp.pt
+        #     marker[int(y)][int(x)] = 255
 
-    # Use a kernel to dilate the image, to not lose any detail on the outline
-    # I used a kernel of 3x3 pixels
-    kernel = np.ones((3, 3), np.uint8)
-    dilation = cv2.dilate(marked.astype(np.float32), kernel, iterations=1)
+        for offset in [10, 30]:
+            for x_factor, y_factor in [(1, 1), (1, -1), (-1, 1), (-1, -1)]:
+                marker[IMAGE_HEIGHT // 2 + y_factor * offset][IMAGE_WIDTH // 2 + x_factor * offset] = 255
 
-    # Now apply the mask we created on the initial image
-    final_img = cv2.bitwise_and(img, img, mask=dilation.astype(np.uint8))
+        # Now we have set the markers, we use the watershed
+        # algorithm to generate a marked image
+        marked = cv2.watershed(img, marker)
 
-    return final_img
+        # Make the background black, and what we want to keep white
+        marked[marked == 1] = 0
+        marked[marked > 1] = 255
+
+        # Use a kernel to dilate the image, to not lose any detail on the outline
+        # I used a kernel of 3x3 pixels
+        kernel = np.ones((3, 3), np.uint8)
+        dilation = cv2.dilate(marked.astype(np.float32), kernel, iterations=1)
+
+        # Now apply the mask we created on the initial image
+        final_img = cv2.bitwise_and(img, img, mask=dilation.astype(np.uint8))
+
+        return final_img
+
+VALID_CYCLEGAN_NAMES = "apple2orange, orange2apple, summer2winter_yosemite, winter2summer_yosemite, horse2zebra, zebra2horse, monet2photo, style_monet, style_cezanne, style_ukiyoe, style_vangogh, sat2map, map2sat, cityscapes_photo2label, cityscapes_label2photo, facades_photo2label, facades_label2photo, iphone2dslr_flower".split(", ")
+
+class CycleGANProcessor:
+    def __init__(self, name, cache_dir="/tmp/cyclegan-checkpoints"):
+        os.makedirs(cache_dir, exist_ok=True)
+        checkpoint_url = f"http://efrosgans.eecs.berkeley.edu/cyclegan/pretrained_models/{name}.pth"
+        local_path = os.path.join(cache_dir, f"{name}.pth")
+        if not os.path.exists(local_path):
+            print(f"downloading checkpoint {name}...")
+            urllib.request.urlretrieve(checkpoint_url, local_path)
+            print("done")
+        self._model = cyclegan.load_checkpoint(local_path, get_model_device())
+
+    def _run_model(self, img):
+        # cyclegan models expect images in the range [-1, 1]
+        img = img * 2 - 1
+        out = self._model(img)
+        return (out + 1) / 2
+        
+    def process(self, img):
+        height, width, _ = img.shape
+        resized_img = cv2.resize(img, (cyclegan.IMAGE_SIZE, cyclegan.IMAGE_SIZE), interpolation=cv2.INTER_AREA)
+        out = process_image_with_model(self._run_model, resized_img)
+        return cv2.resize(out, (width, height), interpolation=cv2.INTER_LINEAR)
 
 
 def write_bmp_rgb(path, img):
@@ -233,7 +283,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--filter",
-        choices=["passthrough", "sobel", "watershed"],
+        choices=["passthrough", "sobel", "watershed", "cyclegan"],
         default="passthrough",
     )
     parser.add_argument(
@@ -246,12 +296,13 @@ def main():
     vc = cv2.VideoCapture(0)
 
     if args.filter == "passthrough":
-        processor = lambda x: x
+        processor = IdentityProcessor()
     elif args.filter == "sobel":
-        model = SobelImageProcessor()
-        processor = functools.partial(process_image_with_model, model)
+        processor = SobelImageProcessor()
     elif args.filter == "watershed":
-        processor = watershed_processor
+        processor = WatershedProcessor()
+    elif args.filter == "cyclegan":
+        processor = CycleGANProcessor("horse2zebra")
     else:
         raise ValueError()
 
@@ -266,7 +317,7 @@ def main():
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         read_time = time.time() - start
         start = time.time()
-        processed_frame = processor(frame)
+        processed_frame = processor.process(frame)
         process_time = time.time() - start
         start = time.time()
         save_image(processed_frame, output_path)

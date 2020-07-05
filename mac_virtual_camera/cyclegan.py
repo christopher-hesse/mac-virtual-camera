@@ -1,5 +1,4 @@
 # from https://github.com/junyanz/pytorch-CycleGAN-and-pix2pix
-# bash ./scripts/download_cyclegan_model.sh horse2zebra
 
 import argparse
 import functools
@@ -146,6 +145,18 @@ def __patch_instance_norm_state_dict(state_dict, module, keys, i=0):
         __patch_instance_norm_state_dict(state_dict, getattr(module, key), keys, i + 1)
 
 
+def load_checkpoint(checkpoint_path, device):
+    norm_layer = norm_layer = functools.partial(nn.InstanceNorm2d, affine=False, track_running_stats=False)
+    net = ResnetGenerator(input_nc=3,output_nc=3, ngf=64, norm_layer=norm_layer, use_dropout=False, n_blocks=9)
+    net.to(device)
+
+    state_dict = torch.load(checkpoint_path, map_location=device)
+    for key in list(state_dict.keys()):  # need to copy keys here because we mutate in loop
+        __patch_instance_norm_state_dict(state_dict, net, key.split('.'))
+    net.load_state_dict(state_dict)
+    return net
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--input-path", required=True)
@@ -159,16 +170,8 @@ def main():
     input_nhwc = input_hwc.unsqueeze(dim=0)
     input_nchw = input_nhwc.permute(0, 3, 1, 2)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    norm_layer = norm_layer = functools.partial(nn.InstanceNorm2d, affine=False, track_running_stats=False)
-    net = ResnetGenerator(input_nc=3,output_nc=3, ngf=64, norm_layer=norm_layer, use_dropout=False, n_blocks=9)
-    net.to(device)
-
-    state_dict = torch.load(args.checkpoint_path, map_location=device)
-    for key in list(state_dict.keys()):  # need to copy keys here because we mutate in loop
-        __patch_instance_norm_state_dict(state_dict, net, key.split('.'))
-    net.load_state_dict(state_dict)
-
+    
+    net = load_checkpoint(args.checkpoint_path, device)
     with torch.no_grad():
         output_nhwc = net(input_nchw.to(device))
     
