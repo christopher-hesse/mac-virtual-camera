@@ -275,7 +275,7 @@ def main():
     elif args.processor == "watershed":
         processor = WatershedProcessor()
     elif args.processor == "cyclegan":
-        processor = CycleGANProcessor("horse2zebra")
+        processor = CycleGANProcessor("style_ukiyoe")
     else:
         raise ValueError()
 
