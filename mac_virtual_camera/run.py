@@ -3,7 +3,6 @@ Read from the computer's camera and save images to bitmaps
 """
 
 import argparse
-import functools
 import os
 import time
 import math
@@ -226,47 +225,17 @@ class CycleGANProcessor:
     def process(self, img):
         height, width, _ = img.shape
         resized_img = cv2.resize(img, (cyclegan.IMAGE_SIZE, cyclegan.IMAGE_SIZE), interpolation=cv2.INTER_AREA)
-        out = process_image_with_model(self._run_model, resized_img)
+        out = process_image_with_model(self._run_model, resized_img)f
         return cv2.resize(out, (width, height), interpolation=cv2.INTER_LINEAR)
 
 
-def write_bmp_rgb(path, img):
+def write_rgb_data(path, img):
     """
     CGCreateImage seems to accept only RGB images.  The BMP format expects BGR, so the images
     written by this function will look a bit off
     """
     assert len(img.shape) == 3 and img.shape[-1] == 3 and img.dtype == np.uint8
-    width = img.shape[1]
-    assert width * 3 % 4 == 0
-    height = img.shape[0]
-
     with open(path, "wb") as f:
-
-        def write_int32(i):
-            f.write(i.to_bytes(4, "little"))
-
-        def write_int16(i):
-            f.write(i.to_bytes(2, "little"))
-
-        # BITMAPFILEHEADER
-        f.write(b"BM")
-        write_int32(img.size)
-        write_int32(0)  # reserved
-        write_int32(40 + 14)  # offset to start of data from beginning of file
-
-        # BITMAPINFOHEADER
-        write_int32(40)  # size of header
-        write_int32(width)
-        write_int32(height)
-        write_int16(1)  # planes
-        write_int16(24)  # bits per pixel
-        write_int32(0)  # compression
-        write_int32(0)  # size of compressed image
-        write_int32(0)  # horizontal resolution
-        write_int32(0)  # vertical resolution
-        write_int32(0)  # number of colors used
-        write_int32(0)  # number of important colors
-
         for row in reversed(img):
             f.write(row.tobytes())
 
@@ -275,14 +244,19 @@ def save_image(img, path):
     assert img.shape == (IMAGE_HEIGHT, IMAGE_WIDTH, 3)
     name, ext = os.path.splitext(path)
     tmp_path = name + "-tmp" + ext
-    write_bmp_rgb(tmp_path, img)
+    write_rgb_data(tmp_path, img)
     os.replace(tmp_path, path)
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--filter",
+        "--camera-index",
+        type=int,
+        default=0,
+    )
+    parser.add_argument(
+        "--processor",
         choices=["passthrough", "sobel", "watershed", "cyclegan"],
         default="passthrough",
     )
@@ -293,7 +267,7 @@ def main():
     )
     args = parser.parse_args()
 
-    vc = cv2.VideoCapture(0)
+    vc = cv2.VideoCapture(args.camera_index)
 
     if args.filter == "passthrough":
         processor = IdentityProcessor()
@@ -328,7 +302,6 @@ def main():
             )
         if args.display_window:
             display_frame = np.concatenate([frame, processed_frame], axis=1)
-            print(display_frame.shape)
             resized_display_frame = cv2.resize(
                 display_frame,
                 (IMAGE_WIDTH, IMAGE_HEIGHT // 2),
