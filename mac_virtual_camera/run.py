@@ -225,14 +225,13 @@ class CycleGANProcessor:
     def process(self, img):
         height, width, _ = img.shape
         resized_img = cv2.resize(img, (cyclegan.IMAGE_SIZE, cyclegan.IMAGE_SIZE), interpolation=cv2.INTER_AREA)
-        out = process_image_with_model(self._run_model, resized_img)f
+        out = process_image_with_model(self._run_model, resized_img)
         return cv2.resize(out, (width, height), interpolation=cv2.INTER_LINEAR)
 
 
 def write_rgb_data(path, img):
     """
-    CGCreateImage seems to accept only RGB images.  The BMP format expects BGR, so the images
-    written by this function will look a bit off
+    CGCreateImage seems to accept only raw RGB images
     """
     assert len(img.shape) == 3 and img.shape[-1] == 3 and img.dtype == np.uint8
     with open(path, "wb") as f:
