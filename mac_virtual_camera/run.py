@@ -147,13 +147,13 @@ class WatershedProcessor:
         params = cv2.SimpleBlobDetector_Params()
         params.minThreshold = 10
         params.maxThreshold = 200
-        params.filterByArea = True
+        params.processorByArea = True
         params.minArea = 10
-        params.filterByCircularity = False
+        params.processorByCircularity = False
         params.minCircularity = 0.1
-        params.filterByConvexity = False
+        params.processorByConvexity = False
         params.minConvexity = 0.87
-        params.filterByInertia = False
+        params.processorByInertia = False
         params.minInertiaRatio = 0.01
         self.detector = cv2.SimpleBlobDetector_create(params)
 
@@ -268,13 +268,13 @@ def main():
 
     vc = cv2.VideoCapture(args.camera_index)
 
-    if args.filter == "passthrough":
+    if args.processor == "passthrough":
         processor = IdentityProcessor()
-    elif args.filter == "sobel":
+    elif args.processor == "sobel":
         processor = SobelImageProcessor()
-    elif args.filter == "watershed":
+    elif args.processor == "watershed":
         processor = WatershedProcessor()
-    elif args.filter == "cyclegan":
+    elif args.processor == "cyclegan":
         processor = CycleGANProcessor("horse2zebra")
     else:
         raise ValueError()
